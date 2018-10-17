@@ -5,3 +5,4 @@ authors = ["Jasper Bekkers <bekkers@gmail.com>"]
 
 [dependencies]
 rand = "0.5.5"
+streaming-stats="*"

@@ -1,13 +1,21 @@
+#![allow(dead_code)]
+#![allow(unused_mut)]
+#![allow(unused_variables)]
+
 extern crate rand;
+extern crate stats;
 
 use rand::*;
+use stats::*;
 
+#[derive(Default, Clone, Debug)]
 struct Outcome {
     light_idx: usize,
     idx: usize,
     rate: f32,
 }
 
+#[derive(Clone, Debug)]
 struct RejectionMethod {
     max_rate: f32,
     outcomes: Vec<Outcome>,
@@ -80,12 +88,22 @@ struct CompositeRejectionMethod {
 }
 
 impl CompositeRejectionMethod {
-    fn new(num_groups: usize, max: f32) -> Self {
+    fn new(max: f32, constant: f32) -> Self {
+        let mut groups = vec![];
+        let group_count = max.log(constant).ceil() as usize;
+
+        let mut exponent = 0.0;
+
+        for x in 0..group_count {
+            groups.push(RejectionMethod::new(max / constant.powf(exponent)));
+            exponent += 1.0
+        }
+
         Self {
-            groups: vec![],
-            sum_rates: vec![],
+            groups: groups,
+            sum_rates: vec![0.0; group_count],
             total_rate: 0.0,
-            constant: 0.0,
+            constant: constant,
             max: max,
         }
     }
@@ -115,10 +133,12 @@ impl CompositeRejectionMethod {
 }
 
 fn main() {
-    let mut rj = RejectionMethod::new(3.0);
+    let max_rate = 30000.0;
+    let mut rj = CompositeRejectionMethod::new(max_rate, 10.0);
+    //let mut rj = RejectionMethod::new(max_rate);
 
     rj.add(1.0, 0);
-    rj.add(2.0, 1);
+    rj.add(20000.0, 1);
 
     let mut rng = thread_rng();
 
@@ -127,13 +147,25 @@ fn main() {
     let mut list = [0.0, 0.0];
     let iter_count = 10000;
 
-    for x in 0..iter_count {
+    let mut counts = vec![];
+
+    for _x in 0..iter_count {
         let res = rj.extract(&mut rng);
         list[res.1] += 1.0 / iter_count as f32;
+        counts.push(res.0 as f64);
         max_loop = max_loop.max(res.0);
     }
 
     println!("{:?}", list);
 
-    println!("Max loop count {}", max_loop);
+    println!(
+        "Loop count, max: {}, mean: {}, median: {}, stddev: {}, variance: {}",
+        max_loop,
+        mean(counts.iter().map(|x| *x)),
+        median(counts.iter().map(|x| *x)).unwrap(),
+        stddev(counts.iter().map(|x| *x)),
+        variance(counts.iter().map(|x| *x))
+    );
+
+    //println!("{:?}", counts);
 }
