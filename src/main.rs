@@ -57,8 +57,8 @@ impl RejectionMethod {
         // } else if (rate > 0.0 && self.outcomes[outcome_idx].rate == 0.0) {
 
         // }
-        let mut outcome = &mut self.outcomes[outcome_idx];
 
+        let mut outcome = &mut self.outcomes[outcome_idx];
         outcome.rate = rate;
     }
 
@@ -73,12 +73,13 @@ impl RejectionMethod {
             let outcome = &self.outcomes[rand_idx as usize];
 
             if outcome.rate >= rand_rate {
-                return (loop_count, outcome.idx);
+                return (loop_count, outcome.light_idx);
             }
         }
     }
 }
 
+#[derive(Debug)]
 struct CompositeRejectionMethod {
     groups: Vec<RejectionMethod>,
     sum_rates: Vec<f32>,
@@ -133,19 +134,26 @@ impl CompositeRejectionMethod {
 }
 
 fn main() {
-    let max_rate = 30000.0;
-    let mut rj = CompositeRejectionMethod::new(max_rate, 10.0);
+    let max_rate = 10.0;
+    let mut rj = CompositeRejectionMethod::new(max_rate, 2.0);
     //let mut rj = RejectionMethod::new(max_rate);
 
     rj.add(1.0, 0);
-    rj.add(20000.0, 1);
+    rj.add(2.0, 1);
+    rj.add(1.0, 2);
+    rj.add(1.0, 3);
+    rj.add(1.0, 4);
+    rj.add(1.0, 5);
+    rj.add(1.0, 6);
+
+    println!("{:#?}", rj);
 
     let mut rng = thread_rng();
 
     let mut max_loop = 0;
 
-    let mut list = [0.0, 0.0];
-    let iter_count = 10000;
+    let mut list = [0.0; 7];
+    let iter_count = 100000;
 
     let mut counts = vec![];
 
