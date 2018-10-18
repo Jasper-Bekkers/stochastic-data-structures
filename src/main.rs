@@ -8,24 +8,25 @@ extern crate stats;
 use rand::*;
 use stats::*;
 
-#[derive(Default, Clone, Debug)]
+trait StatisticalMethod {
+    fn add(&mut self, rate: f32, light_idx: usize) -> Outcome;
+    fn delete(&mut self, outcome: Outcome);
+    fn update(&mut self, outcome: Outcome, new_rate: f32) -> Outcome;
+    fn extract<T: Rng>(&self, &mut T) -> (u32, usize);
+}
+
+#[derive(Default, Clone, Copy, Debug)]
 struct Outcome {
-    light_idx: usize,
     idx: usize,
+    group_idx: Option<usize>,
     rate: f32,
+    light_idx: usize,
 }
 
 #[derive(Clone, Debug)]
 struct RejectionMethod {
     max_rate: f32,
     outcomes: Vec<Outcome>,
-}
-
-trait StatisticalMethod {
-    fn add(&mut self, rate: f32, light_idx: usize);
-    fn delete(&mut self, outcome_idx: usize);
-    fn update(&mut self, outcome_idx: usize, rate: f32);
-    fn extract<T: Rng>(&self, &mut T) -> (u32, usize);
 }
 
 impl RejectionMethod {
@@ -38,37 +39,43 @@ impl RejectionMethod {
 }
 
 impl StatisticalMethod for RejectionMethod {
-    fn add(&mut self, rate: f32, light_idx: usize) {
-        if rate > self.max_rate {
+    fn add(&mut self, rate: f32, light_idx: usize) -> Outcome {
+        if rate > self.max_rate || rate == 0.0 {
             // todo: clamp rate, or something
-            panic!("Invalid rate");
+            panic!("Invalid rate provided in `add`");
         }
 
         let outcome = Outcome {
             light_idx: light_idx,
+            group_idx: None,
             rate: rate,
             idx: self.outcomes.len(),
         };
 
         self.outcomes.push(outcome);
+        outcome
     }
 
-    fn delete(&mut self, outcome_idx: usize) {
-        self.outcomes.swap_remove(outcome_idx);
+    fn delete(&mut self, outcome: Outcome) {
+        self.outcomes.swap_remove(outcome.idx);
         if self.outcomes.len() != 0 {
-            self.outcomes[outcome_idx].idx = outcome_idx;
+            self.outcomes[outcome.idx].idx = outcome.idx;
         }
     }
 
-    fn update(&mut self, outcome_idx: usize, rate: f32) {
-        // if rate == 0.0 && self.outcomes[outcome_idx].rate > 0.0 {
+    fn update(&mut self, outcome: Outcome, new_rate: f32) -> Outcome {
+        // if new_rate == 0.0 && self.outcomes[outcome_idx].rate > 0.0 {
         //     self.delete(outcome_idx);
-        // } else if (rate > 0.0 && self.outcomes[outcome_idx].rate == 0.0) {
-
+        // } else if (new_rate > 0.0 && self.outcomes[outcome_idx].rate == 0.0) {
         // }
 
-        let mut outcome = &mut self.outcomes[outcome_idx];
-        outcome.rate = rate;
+        if new_rate == 0.0 {
+            panic!("Invalid rate provided in `update`");
+        }
+
+        let mut outcome = &mut self.outcomes[outcome.idx];
+        outcome.rate = new_rate;
+        *outcome
     }
 
     fn extract<T: Rng>(&self, rng: &mut T) -> (u32, usize) {
@@ -120,18 +127,52 @@ impl CompositeRejectionMethod {
             max: max,
         }
     }
+
+    fn find_group_idx(&self, rate: f32) -> usize {
+        (self.max / rate).log(self.constant).floor() as usize
+    }
 }
 
 impl StatisticalMethod for CompositeRejectionMethod {
-    fn add(&mut self, rate: f32, light_idx: usize) {
-        let group_idx = (self.max / rate).log(self.constant).floor() as usize;
-        self.groups[group_idx].add(rate, light_idx);
+    fn add(&mut self, rate: f32, light_idx: usize) -> Outcome {
+        let group_idx = self.find_group_idx(rate);
+
+        let mut outcome = self.groups[group_idx].add(rate, light_idx);
         self.sum_rates[group_idx] += rate;
         self.total_rate += rate;
+
+        outcome.group_idx = Some(group_idx);
+        outcome
     }
 
-    fn delete(&mut self, outcome_idx: usize) {}
-    fn update(&mut self, outcome_idx: usize, rate: f32) {}
+    fn delete(&mut self, outcome: Outcome) {}
+
+    fn update(&mut self, outcome: Outcome, new_rate: f32) -> Outcome {
+        let new_group_idx = self.find_group_idx(new_rate);
+
+        if let Some(old_group_idx) = outcome.group_idx {
+            let delta_rate = new_rate - outcome.rate;
+
+            self.total_rate += delta_rate;
+
+            let mut outcome = if new_group_idx == old_group_idx {
+                self.sum_rates[new_group_idx] += delta_rate;
+                self.groups[new_group_idx].update(outcome, new_rate)
+            } else {
+                self.sum_rates[old_group_idx] -= outcome.rate;
+                self.groups[old_group_idx].delete(outcome);
+
+                self.sum_rates[new_group_idx] += new_rate;
+                self.groups[new_group_idx].add(new_rate, outcome.light_idx)
+            };
+
+            outcome.group_idx = Some(new_group_idx);
+            return outcome;
+        } else {
+            panic!("Outcome must have a group idx set");
+        }
+    }
+
     fn extract<T: Rng>(&self, rng: &mut T) -> (u32, usize) {
         let u = rng.gen::<f32>();
         let mut rand = u * self.total_rate;
@@ -153,12 +194,16 @@ fn main() {
     //let mut rj = RejectionMethod::new(max_rate);
 
     rj.add(1.0, 0);
-    rj.add(2.0, 1);
-    rj.add(1.0, 2);
-    rj.add(10.0, 3);
-    rj.add(100.0, 4);
-    rj.add(1000.0, 5);
-    rj.add(10000.0, 6);
+    rj.add(1.0, 1);
+    let update_me = rj.add(1.0, 2);
+    rj.add(1.0, 3);
+    rj.add(1.0, 4);
+    rj.add(1.0, 5);
+    rj.add(1.0, 6);
+
+    let update_2 = rj.update(update_me, 2.0);
+
+    rj.update(update_2, 10.0);
 
     // println!("{:#?}", rj);
 
