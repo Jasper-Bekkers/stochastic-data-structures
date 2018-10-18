@@ -21,6 +21,13 @@ struct RejectionMethod {
     outcomes: Vec<Outcome>,
 }
 
+trait StatisticalMethod {
+    fn add(&mut self, rate: f32, light_idx: usize);
+    fn delete(&mut self, outcome_idx: usize);
+    fn update(&mut self, outcome_idx: usize, rate: f32);
+    fn extract<T: Rng>(&self, &mut T) -> (u32, usize);
+}
+
 impl RejectionMethod {
     fn new(max_rate: f32) -> Self {
         Self {
@@ -28,7 +35,9 @@ impl RejectionMethod {
             outcomes: vec![],
         }
     }
+}
 
+impl StatisticalMethod for RejectionMethod {
     fn add(&mut self, rate: f32, light_idx: usize) {
         if rate > self.max_rate {
             // todo: clamp rate, or something
@@ -62,7 +71,7 @@ impl RejectionMethod {
         outcome.rate = rate;
     }
 
-    fn extract<T: Rng>(&mut self, rng: &mut T) -> (u32, usize) {
+    fn extract<T: Rng>(&self, rng: &mut T) -> (u32, usize) {
         let mut loop_count = 0;
         loop {
             loop_count += 1;
@@ -90,6 +99,9 @@ struct CompositeRejectionMethod {
 
 impl CompositeRejectionMethod {
     fn new(max: f32, constant: f32) -> Self {
+        if constant <= 1.0 {
+            panic!("Invalid constant");
+        }
         let mut groups = vec![];
         let group_count = max.log(constant).ceil() as usize;
 
@@ -108,7 +120,9 @@ impl CompositeRejectionMethod {
             max: max,
         }
     }
+}
 
+impl StatisticalMethod for CompositeRejectionMethod {
     fn add(&mut self, rate: f32, light_idx: usize) {
         let group_idx = (self.max / rate).log(self.constant).floor() as usize;
         self.groups[group_idx].add(rate, light_idx);
@@ -117,12 +131,12 @@ impl CompositeRejectionMethod {
     }
 
     fn delete(&mut self, outcome_idx: usize) {}
-
-    fn extract<T: Rng>(&mut self, rng: &mut T) -> (u32, usize) {
+    fn update(&mut self, outcome_idx: usize, rate: f32) {}
+    fn extract<T: Rng>(&self, rng: &mut T) -> (u32, usize) {
         let u = rng.gen::<f32>();
         let mut rand = u * self.total_rate;
-        for (idx, g) in self.groups.iter_mut().enumerate() {
-            if self.sum_rates[idx] >= rand {
+        for (idx, g) in self.groups.iter().enumerate() {
+            if self.sum_rates[idx] > rand {
                 return g.extract(rng);
             }
 
@@ -134,19 +148,19 @@ impl CompositeRejectionMethod {
 }
 
 fn main() {
-    let max_rate = 10.0;
+    let max_rate = 30000.0 * 2.0;
     let mut rj = CompositeRejectionMethod::new(max_rate, 2.0);
     //let mut rj = RejectionMethod::new(max_rate);
 
     rj.add(1.0, 0);
     rj.add(2.0, 1);
     rj.add(1.0, 2);
-    rj.add(1.0, 3);
-    rj.add(1.0, 4);
-    rj.add(1.0, 5);
-    rj.add(1.0, 6);
+    rj.add(10.0, 3);
+    rj.add(100.0, 4);
+    rj.add(1000.0, 5);
+    rj.add(10000.0, 6);
 
-    println!("{:#?}", rj);
+    // println!("{:#?}", rj);
 
     let mut rng = thread_rng();
 
