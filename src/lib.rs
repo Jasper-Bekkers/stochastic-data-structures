@@ -1,7 +1,3 @@
-#![allow(dead_code)]
-#![allow(unused_mut)]
-#![allow(unused_variables)]
-
 extern crate rand;
 
 use rand::*;
@@ -27,8 +23,7 @@ pub struct Outcome<T> {
     idx: usize,
     group_idx: Option<usize>,
     rate: f32,
-    //light_idx: usize,
-    payload: T,
+    pub payload: T,
 }
 
 #[derive(Clone, Debug)]
@@ -50,10 +45,14 @@ impl<T> StatisticalMethod<T> for RejectionMethod<T>
 where
     T: Copy + Clone,
 {
-    fn add(&mut self, rate: f32, payload: T) -> Outcome<T> {
-        if rate > self.max_rate || rate == 0.0 {
+    fn add(&mut self, mut rate: f32, payload: T) -> Outcome<T> {
+        if rate > self.max_rate {
             // todo: clamp rate, or something
             panic!("Invalid rate provided in `add`");
+        }
+
+        if rate == 0.0 {
+            rate = 0.0001;
         }
 
         let outcome = Outcome {
@@ -84,7 +83,7 @@ where
             panic!("Invalid rate provided in `update`");
         }
 
-        let mut outcome = &mut self.outcomes[outcome.idx];
+        let outcome = &mut self.outcomes[outcome.idx];
         outcome.rate = new_rate;
         *outcome
     }
@@ -127,6 +126,13 @@ impl<T> CompositeRejectionMethod<T> {
             panic!("Invalid constant");
         }
 
+        if max <= 1.0 {
+            panic!("Invalid max value");
+        }
+
+        // add 1.0 to accomodate rates between 0 and 1
+        let max = max + 1.0;
+
         let group_count = max.log(constant).ceil() as usize;
         let mut groups = vec![];
 
@@ -144,7 +150,10 @@ impl<T> CompositeRejectionMethod<T> {
     }
 
     fn find_group_idx(&self, rate: f32) -> usize {
-        (self.max / rate).log(self.constant).floor() as usize
+        // add 1.0 to rates so we can accomodate results between 0 and 1
+        // the division in blows up if we don't, in new() we've ensured
+        // that max also adds 1.0
+        (self.max / (1.0 + rate)).log(self.constant).floor() as usize
     }
 }
 
@@ -153,10 +162,20 @@ where
     T: Copy + Clone,
 {
     fn add(&mut self, rate: f32, payload: T) -> Outcome<T> {
+        if rate > self.max {
+            panic!("Rate out of range rate: {}, max rate: {}", rate, self.max);
+        }
+
+        // find_group_idx adds 1.0 to rate
         let group_idx = self.find_group_idx(rate);
 
+        // don't add 1.0 to rate here so RejectionMethod returns the right probability
         let mut outcome = self.groups[group_idx].add(rate, payload);
-        self.sum_rates[group_idx] += rate;
+
+        // add 1.0 so extract continues to function
+        self.sum_rates[group_idx] += rate + 1.0;
+
+        // for some reason, not adding 1.0 here makes the result match AliasMethod a lot better
         self.total_rate += rate;
 
         outcome.group_idx = Some(group_idx);
@@ -182,15 +201,15 @@ where
 
             let mut outcome = if new_group_idx == old_group_idx {
                 // group stayed the same, just update
-                self.sum_rates[new_group_idx] += delta_rate;
+                self.sum_rates[new_group_idx] += delta_rate + 1.0;
                 self.groups[new_group_idx].update(outcome, new_rate)
             } else {
                 // group changed, remove from old group
-                self.sum_rates[old_group_idx] -= outcome.rate;
+                self.sum_rates[old_group_idx] -= outcome.rate + 1.0;
                 self.groups[old_group_idx].delete(outcome);
 
                 // add to new group
-                self.sum_rates[new_group_idx] += new_rate;
+                self.sum_rates[new_group_idx] += new_rate + 1.0;
                 self.groups[new_group_idx].add(new_rate, outcome.payload)
             };
 
@@ -223,8 +242,8 @@ where
 
 #[derive(Clone)]
 pub struct AliasMethod {
-    pub alias: Vec<u32>,
-    pub probability: Vec<f32>,
+    alias: Vec<u32>,
+    probability: Vec<f32>,
 }
 
 impl AliasMethod {
