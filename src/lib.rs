@@ -130,9 +130,6 @@ impl<T> CompositeRejectionMethod<T> {
             panic!("Invalid max value");
         }
 
-        // add 1.0 to accomodate rates between 0 and 1
-        let max = max + 1.0;
-
         let group_count = max.log(constant).ceil() as usize;
         let mut groups = vec![];
 
@@ -150,10 +147,9 @@ impl<T> CompositeRejectionMethod<T> {
     }
 
     fn find_group_idx(&self, rate: f32) -> usize {
-        // add 1.0 to rates so we can accomodate results between 0 and 1
-        // the division in blows up if we don't, in new() we've ensured
-        // that max also adds 1.0
-        (self.max / (1.0 + rate)).log(self.constant).floor() as usize
+        // clamp rate to 1.0 on the lower end so all the rates between 0
+        // and 1 fall into the very first bucket
+        (self.max / rate.max(1.0)).log(self.constant).floor() as usize
     }
 }
 
@@ -166,16 +162,10 @@ where
             panic!("Rate out of range rate: {}, max rate: {}", rate, self.max);
         }
 
-        // find_group_idx adds 1.0 to rate
         let group_idx = self.find_group_idx(rate);
 
-        // don't add 1.0 to rate here so RejectionMethod returns the right probability
         let mut outcome = self.groups[group_idx].add(rate, payload);
-
-        // add 1.0 so extract continues to function
-        self.sum_rates[group_idx] += rate + 1.0;
-
-        // for some reason, not adding 1.0 here makes the result match AliasMethod a lot better
+        self.sum_rates[group_idx] += rate;
         self.total_rate += rate;
 
         outcome.group_idx = Some(group_idx);
@@ -201,15 +191,15 @@ where
 
             let mut outcome = if new_group_idx == old_group_idx {
                 // group stayed the same, just update
-                self.sum_rates[new_group_idx] += delta_rate + 1.0;
+                self.sum_rates[new_group_idx] += delta_rate;
                 self.groups[new_group_idx].update(outcome, new_rate)
             } else {
                 // group changed, remove from old group
-                self.sum_rates[old_group_idx] -= outcome.rate + 1.0;
+                self.sum_rates[old_group_idx] -= outcome.rate;
                 self.groups[old_group_idx].delete(outcome);
 
                 // add to new group
-                self.sum_rates[new_group_idx] += new_rate + 1.0;
+                self.sum_rates[new_group_idx] += new_rate;
                 self.groups[new_group_idx].add(new_rate, outcome.payload)
             };
 
@@ -325,5 +315,10 @@ impl AliasMethod {
         } else {
             self.alias[idx] as usize
         }
-    }
+    } /*
+
+    pub fn find_index(&self, u0: f32) -> usize {
+        let u1 = ((b - a + 1) * u0) - ((b - a + 1.0) * u0).floor();
+        self.find_index(u0, u1)
+    }*/
 }
