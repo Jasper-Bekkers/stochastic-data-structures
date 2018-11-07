@@ -22,7 +22,7 @@ fn main() {
     println!("{:#?}", rj);
 
     println!("{:?}", update_me);
-    rj.update(update_me, 1.0, 2.0);
+    rj.update(update_me, 2.0);
 
     println!("{:#?}", rj);
 

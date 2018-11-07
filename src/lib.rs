@@ -353,28 +353,23 @@ impl AtomicCompositeRejectionMethod {
             Ordering::SeqCst,
         );
 
-        idx
+        ((fixed_rate as usize) << 32usize) | idx
     }
 
-    pub fn update(&self, outcome_idx: usize, old_rate: f32, new_rate: f32) {
+    pub fn update(&self, old_rate_and_outcome_idx: usize, new_rate: f32) {
         let new_group_idx = self.find_group_idx(new_rate);
+
+        let old_rate = from_fixed((old_rate_and_outcome_idx >> 32usize) as u32);
+        let outcome_idx = old_rate_and_outcome_idx & 0xffFFffFFusize;
         let old_group_idx = self.find_group_idx(old_rate);
-        //let old_group_idx = outcome.group_idx;
 
         let delta_rate = new_rate - old_rate;
         let fixed_delta_rate = to_fixed(delta_rate);
-        println!(
-            "Rates: {} {} {} {}",
-            new_rate, old_rate, delta_rate, fixed_delta_rate
-        );
-
         self.total_rate
             .fetch_add(fixed_delta_rate, Ordering::SeqCst);
 
         if new_group_idx == old_group_idx {
             // group stayed the same, just update
-            println!("Same group");
-
             self.sum_rates[new_group_idx].fetch_add(fixed_delta_rate, Ordering::SeqCst);
 
             let idx = self.groups[new_group_idx]
@@ -409,11 +404,6 @@ impl AtomicCompositeRejectionMethod {
 
             let mut old_payload_and_rate = 0;
 
-            println!(
-                "Group changed {} {:?} / {} {:?}",
-                old_group_idx, old_rate, new_group_idx, new_rate
-            );
-
             loop {
                 old_payload_and_rate = self.groups[old_group_idx].outcomes[outcome_idx]
                     .payload_and_rate
@@ -431,7 +421,7 @@ impl AtomicCompositeRejectionMethod {
                         Ordering::SeqCst,
                         Ordering::SeqCst,
                     );
-                println!("{:?}", result);
+
                 if result.is_ok() {
                     break;
                 }
@@ -443,8 +433,6 @@ impl AtomicCompositeRejectionMethod {
             let idx = self.groups[new_group_idx]
                 .outcomes_len
                 .fetch_add(1, Ordering::SeqCst);
-
-            println!("new idx {}", idx);
 
             self.groups[new_group_idx].outcomes[idx]
                 .payload_and_rate
