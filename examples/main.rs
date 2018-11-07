@@ -9,6 +9,7 @@ use stochastic_data_structures::*;
 fn main() {
     let max_rate = 10.0 * 2.0;
     let mut rj = CompositeRejectionMethod::<u32>::new(max_rate, 2.0);
+    let mut rj = AtomicCompositeRejectionMethod::new(max_rate, 2.0, 20);
     //let mut rj = RejectionMethod::new(max_rate);
 
     rj.add(1.0, 0);
@@ -18,8 +19,12 @@ fn main() {
     rj.add(1.0, 4);
     rj.add(1.0, 5);
     rj.add(1.0, 6);
+    println!("{:#?}", rj);
 
-    let update_2 = rj.update(update_me, 2.0);
+    println!("{:?}", update_me);
+    rj.update(update_me, 1.0, 2.0);
+
+    println!("{:#?}", rj);
 
     //rj.update(update_2, 1000.0);
 
@@ -68,4 +73,6 @@ fn main() {
         stddev(g_iter.clone()),
         variance(g_iter.clone())
     );
+
+    println!("{}", from_fixed(to_fixed(1.0)));
 }
