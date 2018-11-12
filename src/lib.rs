@@ -397,6 +397,7 @@ impl AtomicCompositeRejectionMethod {
         } else {
             // group changed, remove from old group
             self.sum_rates[old_group_idx].fetch_sub(to_fixed(old_rate), Ordering::SeqCst);
+            self.sum_rates[new_group_idx].fetch_add(to_fixed(new_rate), Ordering::SeqCst);
 
             let swap_idx = self.groups[old_group_idx]
                 .outcomes_len
@@ -428,8 +429,6 @@ impl AtomicCompositeRejectionMethod {
             }
 
             // add to new group
-            self.sum_rates[new_group_idx].fetch_add(to_fixed(new_rate), Ordering::SeqCst);
-
             let idx = self.groups[new_group_idx]
                 .outcomes_len
                 .fetch_add(1, Ordering::SeqCst);
