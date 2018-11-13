@@ -356,6 +356,11 @@ impl AtomicCompositeRejectionMethod {
         ((fixed_rate as usize) << 32usize) | idx
     }
 
+    pub fn encode_old_rate_and_outcome_idx(old_rate: f32, outcome_idx: usize) -> usize {
+        let old_rate_fixed = (to_fixed(old_rate) as usize) << 32usize;
+        old_rate_fixed | (outcome_idx & 0xffFFffFFusize)
+    }
+
     pub fn update(&self, old_rate_and_outcome_idx: usize, new_rate: f32) {
         let new_group_idx = self.find_group_idx(new_rate);
 
@@ -369,19 +374,17 @@ impl AtomicCompositeRejectionMethod {
             .fetch_add(fixed_delta_rate, Ordering::SeqCst);
 
         if new_group_idx == old_group_idx {
-            // group stayed the same, just update
-            self.sum_rates[new_group_idx].fetch_add(fixed_delta_rate, Ordering::SeqCst);
+            let group_idx = new_group_idx;
 
-            let idx = self.groups[new_group_idx]
-                .outcomes_len
-                .fetch_add(1, Ordering::SeqCst);
+            // group stayed the same, just update
+            self.sum_rates[group_idx].fetch_add(fixed_delta_rate, Ordering::SeqCst);
 
             loop {
-                let old_payload_and_rate = self.groups[old_group_idx].outcomes[outcome_idx]
+                let old_payload_and_rate = self.groups[group_idx].outcomes[outcome_idx]
                     .payload_and_rate
                     .load(Ordering::SeqCst);
 
-                let result = self.groups[new_group_idx].outcomes[idx]
+                let result = self.groups[group_idx].outcomes[outcome_idx]
                     .payload_and_rate
                     .compare_exchange(
                         old_payload_and_rate,
