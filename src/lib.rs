@@ -17,7 +17,7 @@ where
     fn add(&mut self, rate: f32, payload: T) -> Outcome<T>;
     fn delete(&mut self, outcome: Outcome<T>);
     fn update(&mut self, outcome: Outcome<T>, new_rate: f32) -> Outcome<T>;
-    fn extract<Random: Rng>(&self, rnd: &mut Random) -> (ExtractStats, T);
+    fn extract<Random: Rng>(&self, rnd: &mut Random) -> (ExtractStats, T, f32);
 }
 
 #[derive(Default, Clone, Copy, Debug)]
@@ -90,7 +90,7 @@ where
         *outcome
     }
 
-    fn extract<Random: Rng>(&self, rng: &mut Random) -> (ExtractStats, T) {
+    fn extract<Random: Rng>(&self, rng: &mut Random) -> (ExtractStats, T, f32) {
         let mut loop_count = 0;
         loop {
             loop_count += 1;
@@ -107,6 +107,7 @@ where
                         group_iterations: None,
                     },
                     outcome.payload,
+                    outcome.rate,
                 );
             }
         }
@@ -212,7 +213,7 @@ where
         }
     }
 
-    fn extract<Random: Rng>(&self, rng: &mut Random) -> (ExtractStats, T) {
+    fn extract<Random: Rng>(&self, rng: &mut Random) -> (ExtractStats, T, f32) {
         let u = rng.gen::<f32>();
         let mut rand = u * self.total_rate;
         let mut iterations = 0;
@@ -271,7 +272,7 @@ impl AtomicRejectionMethod {
         }
     }
 
-    pub fn extract<Random: Rng>(&self, rng: &mut Random) -> (ExtractStats, u32) {
+    pub fn extract<Random: Rng>(&self, rng: &mut Random) -> (ExtractStats, u32, f32) {
         let mut loop_count = 0;
         loop {
             loop_count += 1;
@@ -293,6 +294,7 @@ impl AtomicRejectionMethod {
                         group_iterations: None,
                     },
                     payload,
+                    rate,
                 );
             }
         }
@@ -356,16 +358,11 @@ impl AtomicCompositeRejectionMethod {
         ((fixed_rate as usize) << 32usize) | idx
     }
 
-    pub fn encode_old_rate_and_outcome_idx(old_rate: f32, outcome_idx: usize) -> usize {
-        let old_rate_fixed = (to_fixed(old_rate) as usize) << 32usize;
-        old_rate_fixed | (outcome_idx & 0xffFFffFFusize)
-    }
-
-    pub fn update(&self, old_rate_and_outcome_idx: usize, new_rate: f32) {
+    pub fn update(&self, old_rate_and_outcome_idx: usize, new_rate: f32) -> (usize, usize) {
         let new_group_idx = self.find_group_idx(new_rate);
 
         let old_rate = from_fixed((old_rate_and_outcome_idx >> 32usize) as u32);
-        let outcome_idx = old_rate_and_outcome_idx & 0xffFFffFFusize;
+        let old_outcome_idx = old_rate_and_outcome_idx & 0xffFFffFFusize;
         let old_group_idx = self.find_group_idx(old_rate);
 
         let delta_rate = new_rate - old_rate;
@@ -373,18 +370,18 @@ impl AtomicCompositeRejectionMethod {
         self.total_rate
             .fetch_add(fixed_delta_rate, Ordering::SeqCst);
 
-        if new_group_idx == old_group_idx {
+        return if new_group_idx == old_group_idx {
             let group_idx = new_group_idx;
 
             // group stayed the same, just update
             self.sum_rates[group_idx].fetch_add(fixed_delta_rate, Ordering::SeqCst);
 
             loop {
-                let old_payload_and_rate = self.groups[group_idx].outcomes[outcome_idx]
+                let old_payload_and_rate = self.groups[group_idx].outcomes[old_outcome_idx]
                     .payload_and_rate
                     .load(Ordering::SeqCst);
 
-                let result = self.groups[group_idx].outcomes[outcome_idx]
+                let result = self.groups[group_idx].outcomes[old_outcome_idx]
                     .payload_and_rate
                     .compare_exchange(
                         old_payload_and_rate,
@@ -397,6 +394,8 @@ impl AtomicCompositeRejectionMethod {
                     break;
                 }
             }
+
+            (group_idx, old_outcome_idx)
         } else {
             // group changed, remove from old group
             self.sum_rates[old_group_idx].fetch_sub(to_fixed(old_rate), Ordering::SeqCst);
@@ -409,7 +408,7 @@ impl AtomicCompositeRejectionMethod {
             let mut old_payload_and_rate = 0;
 
             loop {
-                old_payload_and_rate = self.groups[old_group_idx].outcomes[outcome_idx]
+                old_payload_and_rate = self.groups[old_group_idx].outcomes[old_outcome_idx]
                     .payload_and_rate
                     .load(Ordering::SeqCst);
 
@@ -417,7 +416,7 @@ impl AtomicCompositeRejectionMethod {
                     .payload_and_rate
                     .load(Ordering::SeqCst);
 
-                let result = self.groups[old_group_idx].outcomes[outcome_idx]
+                let result = self.groups[old_group_idx].outcomes[old_outcome_idx]
                     .payload_and_rate
                     .compare_exchange(
                         old_payload_and_rate,
@@ -432,20 +431,21 @@ impl AtomicCompositeRejectionMethod {
             }
 
             // add to new group
-            let idx = self.groups[new_group_idx]
+            let new_outcome_idx = self.groups[new_group_idx]
                 .outcomes_len
                 .fetch_add(1, Ordering::SeqCst);
 
-            self.groups[new_group_idx].outcomes[idx]
+            self.groups[new_group_idx].outcomes[new_outcome_idx]
                 .payload_and_rate
                 .swap(
                     (old_payload_and_rate & 0xffFFffFF_00000000) | (to_fixed(new_rate) as u64),
                     Ordering::SeqCst,
                 );
-        }
+            (new_group_idx, new_outcome_idx)
+        };
     }
 
-    pub fn extract<Random: Rng>(&self, rng: &mut Random) -> (ExtractStats, u32) {
+    pub fn extract<Random: Rng>(&self, rng: &mut Random) -> (ExtractStats, u32, f32) {
         let u = rng.gen::<f32>();
         let mut rand = u * from_fixed(self.total_rate.load(Ordering::SeqCst));
         let mut iterations = 0;
@@ -454,6 +454,7 @@ impl AtomicCompositeRejectionMethod {
             if sum_rate > rand {
                 let mut r = g.extract(rng);
                 r.0.group_iterations = Some(iterations);
+                r.2 = from_fixed(self.total_rate.load(Ordering::SeqCst)) / r.2;
                 return r;
             }
 
