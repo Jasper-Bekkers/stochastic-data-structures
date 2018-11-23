@@ -221,6 +221,7 @@ where
             if self.sum_rates[idx] > rand {
                 let mut r = g.extract(rng);
                 r.0.group_iterations = Some(iterations);
+                r.2 = self.total_rate / r.2;
                 return r;
             }
 
