@@ -3,6 +3,21 @@ name = "stochastic-data-structures"
 version = "0.1.0"
 authors = ["Jasper Bekkers <bekkers@gmail.com>"]
 edition = "2018"
+license = "MIT"
+readme = "README.md"
+homepage = "https://github.com/Jasper-Bekkers/stochastic-data-structures"
+repository = "https://github.com/Jasper-Bekkers/stochastic-data-structures"
+keywords = ["random", "sampling", "stochastic", "datastructures"]
+categories = ["data-structures"]
+include = [
+    "src/*.rs",
+    "Cargo.toml",
+]
+documentation = "https://docs.rs/stochastic-data-structures"
+description = "Various stochastic datastructures implemented"
+
+[badges]
+maintenance = { status = "actively-developed" }
 
 [dependencies]
 rand = "0.5.5"
