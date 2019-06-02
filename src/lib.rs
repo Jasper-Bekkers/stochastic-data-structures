@@ -340,8 +340,8 @@ impl AliasMethod {
         }
     } /*
 
-    pub fn find_index(&self, u0: f32) -> usize {
-        let u1 = ((b - a + 1) * u0) - ((b - a + 1.0) * u0).floor();
-        self.find_index(u0, u1)
-    }*/
+      pub fn find_index(&self, u0: f32) -> usize {
+          let u1 = ((b - a + 1) * u0) - ((b - a + 1.0) * u0).floor();
+          self.find_index(u0, u1)
+      }*/
 }

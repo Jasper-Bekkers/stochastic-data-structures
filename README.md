@@ -1,5 +1,6 @@
 stochastic-data-structures
 =====
+[![travis-ci.com](https://travis-ci.com/Jasper-Bekkers/stochastic-data-structures.svg?branch=master)](https://travis-ci.com/Jasper-Bekkers/stochastic-data-structures)
 [![Latest version](https://img.shields.io/crates/v/stochastic-data-structures.svg)](https://crates.io/crates/stochastic-data-structures)
 [![Documentation](https://docs.rs/stochastic-data-structures/badge.svg)](https://docs.rs/stochastic-data-structures)
 [![](https://tokei.rs/b1/github/Jasper-Bekkers/stochastic-data-structures)](https://github.com/Jasper-Bekkers/stochastic-data-structures)
